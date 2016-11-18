@@ -3,29 +3,42 @@ import socket
 from _thread import *
 import threading
 import json
+import os, random, string
 
-HOST = ""
+HOST = socket.gethostbyaddr(socket.gethostname())[0]
 PORT = 0
 
 endpoint_id = 0
 
+
+def gen_pwd(l=16):
+	length = l
+	chars = string.ascii_letters + string.digits + '!@#$%^&*()'
+	random.seed = (os.urandom(1024))
+	return ''.join(random.choice(chars) for i in range(length))
+
+PWD=gen_pwd()
+
 class Endpoint():
 	def __init__(self, s):
+		#ID
 		global endpoint_id
-		self.s = s
 		endpoint_id=endpoint_id + 1
 		self.id = endpoint_id
+		#Client Side
+		self.s = s
 		self.client_connected = 1
+		#Shell Side
 		self.s_shell = None
 		self.shell_connected=0
+		#Remote Meta
 		self.rank = -1
 		self.desc = "(nill)"
+		self.host = "(nill)"
+		self.port = 0
 	
 	def disconnect_client_notify(self):
 		self.client_connected = 0
-	
-	def get_id(self):
-		return self.id
 	
 	def attach_client(self,s):
 		if self.client_connected == 1:
@@ -69,7 +82,13 @@ class Endpoint():
 		return "OK"
 	
 	def dump( self ):
-		ret = "Endpoint : Rank " + str(self.rank) + " " + self.desc
+		ret = "[" + str(self.id) + "] : Rank " + str(self.rank) + " " + self.desc + "@(" + self.host + ":" + str(self.port) + ")"
+		
+		if self.shell_connected or self.client_connected :
+			ret += " ACTIVE"
+		else:
+			ret += " STALL"
+		
 		return ret
 			
 	def process_command( self, command ):
@@ -91,7 +110,8 @@ class Endpoint():
 			print(data)
 			print("====")
 			if data["cmd"] == "echo":
-				ret = "RET : " + data["s"] + "\n"
+				print(data["s"] + "\n")
+				ret = "OK\n"
 			elif data["cmd"] == "meta":
 				ret = self.set_meta( data )
 		
@@ -99,6 +119,7 @@ class Endpoint():
 
 class ListenServ():
 	def __init__(self, cm):
+		global HOST, PORT, PWD
 		self.cm = cm;
 		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sockets = []
@@ -108,7 +129,8 @@ class ListenServ():
 			print("Bind failed. Error Code : " + str(msg[0]) + " Message " + msg[1])
 			sys.exit()
 		self.s.listen(10)
-		print("Socket now listening on port " + str(self.s.getsockname()[1]))
+		PORT=self.s.getsockname()[1]
+		#print("Socket now listening on port " + str(PORT))
 		threading.Thread(target=self.serverthread,
 				args=[]).start()
 	
@@ -120,29 +142,42 @@ class ListenServ():
 	
 	
 	def clientthread(self, conn ):
-		conn.send(("Welcome to the server. Type something and hit enter\n").encode())
-		
 		endpoint = self.cm.register_endpoint( conn )
 		
-		#First notify the unique ID to the client
-		sid = "ID " + str(endpoint.id) + "\n"
-		conn.sendall(sid.encode())
 		
+		
+		did_auth=0
+				
 		while True:
 			try:
 				data = conn.recv(1024)
 				if not data: 
 					break
-				sdata = str(data.decode())[:-2]
+				sdata = str(data.decode())
 			except:
 				print("Failled to decode/recv data")
+
 			
+			print(sdata)		
 			#for i in range(0, len(sdata)):
 			#	print(str(i) + ":" + sdata[i])
 			
 			reply = "(nill)"
-			
-			if sdata.find("RESET") != -1 :
+						
+			if sdata.find("PWD") != -1 :
+				pp = sdata.split(" ")
+				if pp[1] != PWD:
+					reply="BAD_PWD"
+				else:
+					print("AUTHOK from client");
+					reply="AUTHOK\n"
+					did_auth=1
+					#First notify the unique ID to the client
+					sid = "ID " + str(endpoint.id) + "\n"
+					conn.sendall(sid.encode())
+			elif did_auth == 0:
+				reply="BAD_PWD"
+			elif sdata.find("RESET") != -1 :
 				print("In reset")
 				ss = sdata.split(" ");
 				if len(ss)!= 2:
@@ -173,6 +208,7 @@ class ListenServ():
 				reply = endpoint.process_command( sdata )
 
 			conn.sendall(reply.encode())
+
 		try:
 			conn.close()
 		except:
@@ -221,7 +257,7 @@ class ConnectionManager():
 
 	def get_endpoint( self, id ):
 		for i in range( 0, len( self.endpoints ) ):
-			if id == str(self.endpoints[i].get_id()):
+			if id == str(self.endpoints[i].id):
 				return self.endpoints[i]
 		return None
 	
@@ -232,7 +268,10 @@ conn = ConnectionManager()
 
 
 class ExaShell(cmd.Cmd):
-	intro = 'Welcome to the InSitu ExaStamp SHELL\n'
+	global HOST, PORT, PWD
+	intro = 'Welcome to the InSitu ExaStamp SHELL\n\n'+\
+			"Please export the following environment variable\nprior to launching your job:\n\n"+\
+			"export ASHELL_ADDR=\"" + HOST + ":" + str(PORT) + ":" + PWD + "\"\n" 
 	prompt = '(exashell) '
 	file = None
 
