@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <mpi.h>
 #include "ashell.h"
-
+#include <unistd.h>
 
 
 int main( int argc, char ** argv )

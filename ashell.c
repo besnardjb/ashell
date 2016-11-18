@@ -8,6 +8,10 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <dirent.h>
+#include <stdlib.h>
+#include <dlfcn.h>
+#include <unistd.h>
 
 #include <mpi.h>
 
@@ -191,7 +195,6 @@ int connection_manager_connect( struct connection_manager *cm )
 		MPI_Comm_rank(MPI_COMM_WORLD, &rank );
 		snprintf(meta,500,"{\"cmd\":\"meta\", \"rank\" : %d, \"desc\" : \"%s\", \"host\" : \"%s\", \"port\" : %d}", rank, "", cm->hostname, cm->listening_port);
 		send(cm->outgoing_socket, meta, strlen(meta), 0);
-		flush( cm->outgoing_socket );
 	}
 	else
 	{
@@ -207,9 +210,6 @@ int connection_manager_connect( struct connection_manager *cm )
 	
 	return 0;
 }
-
-
-
 
 
 int connection_manager_listen( struct connection_manager *cm )
@@ -342,27 +342,112 @@ int connection_manager_release( struct connection_manager * cm )
 
 struct xashell_plugin
 {
+	char * path;
+	void * storage;
+	int (*plugin_init)( ashell_t shell , void ** storage );
+	int (*plugin_release)( ashell_t shell , void ** storage );
 	
 	struct xashell_plugin * next;
 };
 
-
+struct xashell_plugin * xashell_plugin_new( char * path )
+{
+	struct xashell_plugin * ret = malloc( sizeof( struct xashell_plugin) );
+	
+	if( !ret )
+	{
+		perror("malloc");
+		return NULL;
+	}
+	
+	ret->path = strdup( path );
+	
+	void * handle = dlopen( path, RTLD_LAZY );
+	
+	fprintf(stderr, "===> %p\n", handle );
+	
+	if( handle == NULL )
+	{
+			return NULL;
+	}
+	
+	ret->plugin_init = (int (*)(ashell_t,void**))dlsym( handle, "xashell_plugin_init");
+	ret->plugin_release = (int (*)(ashell_t,void**))dlsym( handle, "xashell_plugin_init");
+	
+	if(!ret->plugin_init || !ret->plugin_release )
+	{
+		fprintf(stderr, "Could not find all required symbols in target plugin\n"
+						"Plugin : %s", path);
+		return NULL;
+	}
+	
+	
+	return ret;
+}
 
 
 struct xashell_plugins
 {
 	struct xashell_plugin *plugins;
-	
+	int plugin_count;
 };
 
+int xashell_plugins_init( struct xashell_plugins *pls , char * prefix )
+{
+	struct dirent *dir;
+	DIR * d = opendir( prefix );
+	
+	pls->plugins = NULL;
+	pls->plugin_count = 0;
+	
+	if( !d )
+	{
+		perror("Failled to open prefix");
+		return 1;
+	}
+	
+	while( dir = readdir( d ) )
+	{
+	
+		if( dir == NULL )
+		{
+			break;
+		}
+		
+		if( !strstr( dir->d_name, ".so" ) )
+		{
+			continue;
+		}
+	
+		printf("File %s\n", dir->d_name );
+		
+		char path[500];
+		snprintf(path, 500, "%s/%s", prefix, dir->d_name );
+		struct xashell_plugin * new_p = xashell_plugin_new( path );
+	
+		if( new_p )
+		{
+			new_p->next = pls->plugins;
+			pls->plugins = new_p;
+			pls->plugin_count++;
+		}
+	}
+	
+	printf("Sucessfully loaded %d aShell plugins\n", pls->plugin_count);
+	
+	closedir( d );
+	
+	return 0;
+}
 
 
 struct xashell
 {
 	struct connection_manager cm;
-
+	struct xashell_plugins plugins;
 	char * plugin_prefix;
 	
+
 };
 
 
@@ -392,7 +477,13 @@ struct xashell * xashell_new( char * host, int port, char * secret, char * plugi
 
 	ret->plugin_prefix = strdup( plugin_prefix );
 
+	if( xashell_plugins_init( &ret->plugins , plugin_prefix ) )
+	{
+		fprintf(stderr, "Failed to load plugins\n");
+		return NULL;		
+	}
 	
+	return ret;
 }
 
 
