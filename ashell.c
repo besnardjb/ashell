@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <dlfcn.h>
 #include <unistd.h>
+#include <jansson.h>
 
 #include <mpi.h>
 
@@ -40,7 +41,65 @@ struct connection_manager
 	
 };
 
+
 #define BUFF_SIZE (16 * 1024 * 1024)
+
+
+static char linebuffer[BUFF_SIZE] = {0};
+
+char * socket_readline( int socket )
+{
+	/* Is there a line in current buffer */
+	int n;
+
+	char *cr = strstr( linebuffer, "\n");
+	
+	if( cr )
+	{
+		*cr = '\0';
+		char * ret = strdup( linebuffer );
+		
+		char * rest = strdup( cr + 1 );
+		int len_rest = strlen( rest );
+		
+		if( len_rest )
+		{
+			memcpy( linebuffer, rest, len_rest );
+			*( linebuffer + len_rest ) = '\0';
+		}
+		else
+		{
+			linebuffer[0] = '\0';
+		}
+		
+		free( rest );
+		
+		return ret;
+	}
+	else if( socket != -1 )
+	{
+		int dest = strlen( linebuffer );
+
+		if((n = recv(socket, linebuffer + dest, 500 - 1, 0)) < 0)
+		{
+		  perror("recv()");
+		  return NULL;
+		}
+		
+		if( n == 0 )
+		{
+			return socket_readline( -1 );
+		}
+		else
+		{
+			*(linebuffer + dest + n ) = '\0';
+		}
+
+		return socket_readline( socket );
+	}
+
+	return NULL;
+}
 
 void * client_loop( void *pcm )
 {
@@ -58,18 +117,20 @@ void * client_loop( void *pcm )
 	
 	while(1)
 	{
-		int n = 0;
+		char * data = socket_readline( cm->outgoing_socket );
 		
-		if((n = recv(cm->outgoing_socket, buff, BUFF_SIZE - 1, 0)) < 0)
+		if( data )
 		{
-		  perror("recv()");
-		  break;
+			(cm->cb)( data, cm->arg );
+			free( data );
 		}
-
-		buff[n] = '\0';
-		
-		(cm->cb)( buff, cm->arg );
+		else
+		{
+			break;
+		}
 	}
+	
+	fprintf(stderr, "Client disconnected\n");
 	
 	free( buff );
 }
@@ -88,7 +149,7 @@ void * server_loop( void *pcm )
 		
 		if (new_fd < 0)
 		{
-			perror("ERROR on accept");
+			//perror("ERROR on accept");
 			break;
 		}
 		
@@ -165,25 +226,28 @@ int connection_manager_connect( struct connection_manager *cm )
 		send(cm->outgoing_socket, pwd, strlen(pwd), 0);
 		
 		/* GET ACK */
-		n = recv(cm->outgoing_socket, buff, 100 - 1, 0);
-		buff[n] = '\0';
-		if( !strcmp("AUTHOK\n", buff) )
+		char * ack = socket_readline( cm->outgoing_socket );
+		printf("ACK=> %s \n", ack);
+
+		if( strstr(ack, "AUTHOK") )
 		{
 			printf("OK got ACK \n");
 			got_ack =1;
 		}
+
+		free( ack );
 	}while(!got_ack);
 	
 	/* READ ID */
 
-	n = recv(cm->outgoing_socket, buff, 100 - 1, 0);
-	buff[n] = '\0';
+	char * tid = socket_readline( cm->outgoing_socket );
 
-	printf("==>%s\n", buff );
+	printf("ID=>%s\n", tid );
 
-	int id = atoi( buff + 3 );
+	int id = atoi( tid + 3 );
 	
-		
+	free( tid );
+	
 	printf("Endpoint id %d\n", id );
 	
 	if( cm->id == -1 )
@@ -193,7 +257,7 @@ int connection_manager_connect( struct connection_manager *cm )
 		char meta[500];
 		int rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &rank );
-		snprintf(meta,500,"{\"cmd\":\"meta\", \"rank\" : %d, \"desc\" : \"%s\", \"host\" : \"%s\", \"port\" : %d}", rank, "", cm->hostname, cm->listening_port);
+		snprintf(meta,500,"{\"cmd\":\"meta\", \"data\" : { \"rank\" : %d, \"desc\" : \"%s\", \"host\" : \"%s\", \"port\" : %d}}", rank, "", cm->hostname, cm->listening_port);
 		send(cm->outgoing_socket, meta, strlen(meta), 0);
 	}
 	else
@@ -273,6 +337,27 @@ int connection_manager_listen( struct connection_manager *cm )
    return 0;
 }
 
+int connection_manager_send( struct connection_manager * cm , char * data )
+{
+	if( cm->outgoing_socket == -1 )
+	{
+		if( connection_manager_connect( cm ) )
+		{
+			fprintf(stderr, "Could not connect to server\n");
+			return 1;
+		}
+	}
+	
+	if( cm->outgoing_socket == -1  )
+	{
+		fprintf(stderr, "Error socket not set\n");
+		return 1;
+	}
+	
+	send(cm->outgoing_socket, data, strlen(data), 0);
+	
+	return 0;
+}
 
 
 int connection_manager_init( struct connection_manager * cm , char * host, int port , char * secret , void (*cb)(char *, void *), void * arg)
@@ -306,7 +391,6 @@ int connection_manager_init( struct connection_manager * cm , char * host, int p
 		return 1;
 	}
 
-	
 	
 	return 0;
 }
@@ -368,20 +452,23 @@ struct xashell_plugin * xashell_plugin_new( char * path )
 	
 	if( handle == NULL )
 	{
+			free( ret->path );
+			free(ret);
 			return NULL;
 	}
 	
-	ret->plugin_init = (int (*)(ashell_t,void**))dlsym( handle, "xashell_plugin_init");
-	ret->plugin_release = (int (*)(ashell_t,void**))dlsym( handle, "xashell_plugin_init");
+	ret->plugin_init = (int (*)(ashell_t,void**))dlsym( handle, "ashell_plugin_init");
+	ret->plugin_release = (int (*)(ashell_t,void**))dlsym( handle, "ashell_plugin_release");
 	
 	if(!ret->plugin_init || !ret->plugin_release )
 	{
 		fprintf(stderr, "Could not find all required symbols in target plugin\n"
 						"Plugin : %s", path);
+		free( ret->path );
+		free(ret);
 		return NULL;
 	}
-	
-	
+
 	return ret;
 }
 
@@ -440,6 +527,34 @@ int xashell_plugins_init( struct xashell_plugins *pls , char * prefix )
 	return 0;
 }
 
+struct xashell;
+
+int xashell_plugins_call_init( struct xashell_plugins *pls ,  struct xashell * shell )
+{
+	struct xashell_plugin * tmp = pls->plugins;
+	
+	while(tmp)
+	{
+		(tmp->plugin_init)( shell, &tmp->storage );
+		tmp = tmp->next;
+	}
+	
+	return 0;
+}
+
+int xashell_plugins_call_release( struct xashell_plugins *pls ,  struct xashell * shell )
+{
+	struct xashell_plugin * tmp = pls->plugins;
+	
+	while(tmp)
+	{
+		(tmp->plugin_release)( shell, &tmp->storage );
+		tmp = tmp->next;
+	}
+	
+	return 0;
+}
+
 
 struct xashell
 {
@@ -447,16 +562,88 @@ struct xashell
 	struct xashell_plugins plugins;
 	char * plugin_prefix;
 	
-
 };
 
 
-void xashell_command( char * data, void *ps)
+void xashell_incoming_command( char * data, void *ps)
 {
 	struct xashell * xsh = (struct xashell *)ps;
+	
+	char * cr = strstr(data,"\n");
+	
+	if( cr )
+	{
+		*cr = '\0';
+	}
+	
+	if( strlen( data ) == 0 )
+	{
+		fprintf(stderr, "Empty line\n");	
+		return;
+	}
+	
+	json_t *root;
+    json_error_t error;
+	
+	root = json_loads(data, 0, &error);
+
+	if(!root)
+	{
+		fprintf(stderr, "JSON : %s\n", data);
+		fprintf(stderr, "error: on line %d: %s\n", error.line, error.text);
+		return;
+	}
+	
+	if(!json_is_object(root))
+	{
+		fprintf(stderr, "error: incomming command is not an object\n");
+		json_decref(root);
+		return;
+	}
+	
 	printf("==>%s<===\n", data );
+	
+	json_decref(root);
+	
+	return;
 }
 
+
+
+int xashell_command_to_shell( struct xashell * shell, char * cmd , json_t * data)
+{
+	json_t * jcmd = json_object();
+	json_t * jcmds = json_string(cmd);
+	
+	json_object_set(jcmd, "command", jcmds );
+	json_object_set(jcmd, "data", data );
+
+	char * command = json_dumps(jcmd, JSON_COMPACT);
+
+	json_decref(jcmds);	
+	json_decref(jcmd);
+
+	int ret = connection_manager_send( &shell->cm , command );
+	
+	free( command );
+	
+	return ret;
+}
+
+int xashell_echo( struct xashell * shell, char * data)
+{
+	json_t * jdata = json_object();
+	json_t * s = json_string(data);
+	
+	json_object_set(jdata, "s", s );
+	
+	int ret = xashell_command_to_shell( shell, "echo" , jdata);
+	
+	json_decref(s);
+	json_decref(jdata);
+	
+	return ret;
+}
 
 
 struct xashell * xashell_new( char * host, int port, char * secret, char * plugin_prefix )
@@ -469,7 +656,7 @@ struct xashell * xashell_new( char * host, int port, char * secret, char * plugi
 		return NULL;
 	}
 	
-	if( connection_manager_init( &ret->cm , host, port , secret, xashell_command, (void*)ret ) )
+	if( connection_manager_init( &ret->cm , host, port , secret, xashell_incoming_command, (void*)ret ) )
 	{
 		fprintf(stderr, "Failed to connect\n");
 		return NULL;
@@ -483,14 +670,11 @@ struct xashell * xashell_new( char * host, int port, char * secret, char * plugi
 		return NULL;		
 	}
 	
+	/* Now Initialize plugins */
+	xashell_plugins_call_init( &ret->plugins ,  ret );
+	
 	return ret;
 }
-
-
-
-
-
-
 
 
 
@@ -562,6 +746,10 @@ int ashell_release(ashell_t shell)
 		fprintf(stderr,"Error : disconnecting");
 		return 1;
 	}
+
+	/* Now Release plugins */
+	xashell_plugins_call_release( &s->plugins ,  s );
+	
 	
 	return 0;
 }

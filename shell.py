@@ -13,11 +13,16 @@ endpoint_id = 0
 
 def gen_pwd(l=16):
 	length = l
-	chars = string.ascii_letters + string.digits + '!@#$%^&*()'
+	chars = string.ascii_letters + string.digits + '@#^&()'
 	random.seed = (os.urandom(1024))
 	return ''.join(random.choice(chars) for i in range(length))
 
 PWD=gen_pwd()
+
+
+def gen_ret(ret="OK"):
+	ret = { "ret" : ret }
+	return json.dumps( ret ) + "\n";
 
 class Endpoint():
 	def __init__(self, s):
@@ -79,7 +84,7 @@ class Endpoint():
 		self.desc = meta.get("desc");
 		self.host = meta.get("host");
 		self.port = meta.get("port");
-		return "OK"
+		return gen_ret()
 	
 	def dump( self ):
 		ret = "[" + str(self.id) + "] : Rank " + str(self.rank) + " " + self.desc + "@(" + self.host + ":" + str(self.port) + ")"
@@ -94,25 +99,29 @@ class Endpoint():
 	def process_command( self, command ):
 		print("(i) " + command )
 		
-		ret = "(nil)\n"
+		ret = ""
 		
-		data = None
+		jcmd = None
 		
 		try:
-			data = json.loads( command )
+			jcmd = json.loads( command )
 		except:
 			ret = "Could not parse command : " + command + "\n"
 			print(ret)		
+		
+		cmd = jcmd["cmd"];
+		data = jcmd["data"];
 		
 		
 		if data != None:
 			print("====")
 			print(data)
 			print("====")
-			if data["cmd"] == "echo":
+			
+			if cmd == "echo":
 				print(data["s"] + "\n")
-				ret = "OK\n"
-			elif data["cmd"] == "meta":
+				ret = gen_ret()
+			elif cmd == "meta":
 				ret = self.set_meta( data )
 		
 		return ret
@@ -162,15 +171,15 @@ class ListenServ():
 			#for i in range(0, len(sdata)):
 			#	print(str(i) + ":" + sdata[i])
 			
-			reply = "(nill)"
+			reply = gen_ret();
 						
 			if sdata.find("PWD") != -1 :
 				pp = sdata.split(" ")
 				if pp[1] != PWD:
-					reply="BAD_PWD"
+					reply=gen_ret("BAD_PWD");
 				else:
 					print("AUTHOK from client");
-					reply="AUTHOK\n"
+					conn.sendall(gen_ret("AUTHOK").encode())
 					did_auth=1
 					#First notify the unique ID to the client
 					sid = "ID " + str(endpoint.id) + "\n"
@@ -188,10 +197,10 @@ class ListenServ():
 						self.cm.unregister_endpoint( endpoint )
 						endpoint = prev_endpoint
 						endpoint.attach_client( conn )
-						reply="INF Back to " + ss[1] + "\n"
+						reply=gen_ret("RESET OK");
 					else:
 						reply="ERR No such endpoint " + ss[1] + "\n"
-			elif sdata == "CLOSE":
+			elif sdata.find("CLOSE") != -1:
 				reply = 'INF OK...' + sdata + "\n"
 				print("CLOSING Connection")
 				conn.shutdown(socket.SHUT_RDWR)
@@ -199,15 +208,15 @@ class ListenServ():
 				self.sockets.remove( conn )
 				endpoint.disconnect_client_notify()
 				return
-			elif sdata == "END":
+			elif sdata.find("END") != -1:
 				reply = 'INF OK...' + sdata + "\n"
 				print("CLOSING Server")
 				self.end_server()
 				return
 			else:
 				reply = endpoint.process_command( sdata )
-
-			conn.sendall(reply.encode())
+			print("REPLY : >" + str(reply) + "<")
+			conn.sendall((reply + "\n").encode() )
 
 		try:
 			conn.close()
@@ -255,6 +264,10 @@ class ConnectionManager():
 		for i in range( 0, len( self.endpoints ) ):
 			self.endpoints[i].prune();
 
+	def clear_endpoints( self ):
+		self.prune_endpoints()
+		del self.endpoints[:]
+
 	def get_endpoint( self, id ):
 		for i in range( 0, len( self.endpoints ) ):
 			if id == str(self.endpoints[i].id):
@@ -281,6 +294,9 @@ class ExaShell(cmd.Cmd):
 	def do_prune(self, arg):
 		'Prune all live connections'
 		conn.prune_endpoints();
+	def do_clear(self, arg):
+		'Clear all meta-data'
+		conn.clear_endpoints();
 	def do_exit(self, arg):
 		'Quit the ExaStamp Shell'
 		print('Exitting...')
