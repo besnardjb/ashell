@@ -4,6 +4,7 @@ from _thread import *
 import threading
 import json
 import os, random, string
+import time
 
 HOST = socket.gethostbyaddr(socket.gethostname())[0]
 PORT = 0
@@ -20,9 +21,17 @@ def gen_pwd(l=16):
 PWD=gen_pwd()
 
 
+command_s_refid = int(0)
+command_buffer={}
+
+
 def gen_ret(ret="OK"):
 	ret = { "ret" : ret }
-	return json.dumps( ret ) + "\n";
+	return ret;
+
+def gen_ret_str(ret="OK"):
+	ret = { "ret" : ret }
+	return json.dumps(ret) + "\n";
 
 class Endpoint():
 	def __init__(self, s):
@@ -32,7 +41,7 @@ class Endpoint():
 		self.id = endpoint_id
 		#Client Side
 		self.s = s
-		self.client_connected = 1
+		self.client_connected =1
 		#Shell Side
 		self.s_shell = None
 		self.shell_connected=0
@@ -49,11 +58,15 @@ class Endpoint():
 		if self.client_connected == 1:
 			print("Warning client " + str(self.id) + "is already connected, closing previous")
 			self.disconnect_client()
+		if self.shell_connected == 1:
+			print("Warning shell " + str(self.id) + "is already connected, closing previous")
+			self.disconnect_shell()
 		self.s = s
 		self.client_connected = 1
 		print("Client reattached to " + str(self.id) )
 	
 	def disconnect_client(self):
+		self.disconnect_client_notify()
 		if self.client_connected == 0:
 			#Client is not here
 			return
@@ -61,12 +74,12 @@ class Endpoint():
 			self.s.shutdown( socket.SHUT_RDWR )
 		except:
 			pass
-		self.disconnect_client_notify()
 	
 	def disconnect_shell_notify(self):
 		self.shell_connected = 0
 		
 	def disconnect_shell(self):
+		self.disconnect_shell_notify()	
 		if self.shell_connected == 0:
 			return
 		try:
@@ -75,6 +88,45 @@ class Endpoint():
 			pass
 		self.disconnect_shell_notify()	
 	
+	def get_connected_socket(self):
+		if self.shell_connected == 1:
+			return self.s_shell
+		if self.client_connected == 1:
+			return self.s
+		return None
+
+	def send_command( self, command, data ):
+		global command_s_refid
+		global command_buffer
+		jscmd={}
+		jscmd["s_refid"]=command_s_refid
+		command_s_refid=command_s_refid+1
+		jscmd["cmd"]=command
+		jscmd["data"]=data
+		s = self.get_connected_socket();
+		if s == None:
+			print("Error No connected socket")
+			return
+		cret = json.dumps( jscmd ) + "\n"
+		print("Sending" +  cret )
+		s.sendall( cret.encode() )
+		ret = None
+		counter=0
+		while ret == None:
+			ret = command_buffer.get( str(jscmd["s_refid"]) )
+			#print("Ret  " + json.dumps(ret) +  " -- " + json.dumps(command_buffer) );
+			counter= counter+1
+			if ret == None:
+				time.sleep(0.00001)
+				if 1e6 < counter:
+					print("(E) Timeout getting command return");
+					break
+			else:
+				print("(i) Command OK");
+				del command_buffer[ str(jscmd["s_refid"]) ]
+				break
+		return ret
+
 	def prune(self):
 		self.disconnect_client()
 		self.disconnect_shell()
@@ -98,8 +150,9 @@ class Endpoint():
 			
 	def process_command( self, command ):
 		print("(i) " + command )
+		global command_buffer
 		
-		ret = ""
+		ret = {}
 		
 		jcmd = None
 		
@@ -107,11 +160,18 @@ class Endpoint():
 			jcmd = json.loads( command )
 		except:
 			ret = "Could not parse command : " + command + "\n"
-			print(ret)		
+			print(ret)
+			
+		#Do we process a return ? */
+		refid = jcmd.get("s_refid");
+		cmd = jcmd.get("cmd");
+		data = jcmd.get("data");	
 		
-		cmd = jcmd["cmd"];
-		data = jcmd["data"];
-		
+		if refid != None:
+			#print("Pushing cmd return from " + str(refid) )
+			command_buffer[ str(refid) ] = data
+			#print( command_buffer )
+			return None;
 		
 		if data != None:
 			print("====")
@@ -124,6 +184,9 @@ class Endpoint():
 			elif cmd == "meta":
 				ret = self.set_meta( data )
 		
+		if jcmd.get("refid") != None:
+			ret["refid"] = jcmd["refid"];
+		
 		return ret
 
 class ListenServ():
@@ -132,7 +195,7 @@ class ListenServ():
 		self.cm = cm;
 		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sockets = []
-		try:
+M@ÿ@		try:
 			self.s.bind((HOST, PORT))
 		except socket.error as msg:
 			print("Bind failed. Error Code : " + str(msg[0]) + " Message " + msg[1])
@@ -148,38 +211,61 @@ class ListenServ():
 			self.sockets[i].shutdown(socket.SHUT_RDWR)
 		self.s.shutdown( socket.SHUT_RDWR );
 		self.s.close()
-	
+
+	def reconnect( self, endpoint ):
+		if endpoint.get_connected_socket() != None:
+			#Already running
+			return;
+		s = socket.socket( socket.AF_INET, socket.SOCK_STREAM)
+		try:
+			s.connect((endpoint.host, endpoint.port))
+		except:
+			print("Failled to connect to target " + endpoint.host + ":" + str(endpoint.port))
+			return;
+		endpoint.s_shell = s
+		endpoint.shell_connected=1
+		threading.Thread(target=self.clientthread, args=[s]).start()
+		return s
+		
+
+	def readacommand( self, databuff, sock ):
+		if '\n' in databuff:
+			sret = databuff.split("\n")
+			databuff = "\n".join(sret[1:])
+			ret = sret[0]
+			#print("RET " + ret  )
+			return ret
+		else:
+			tdata = sock.recv(1024)
+			if not tdata: 
+				return None
+			else:
+				databuff = databuff + tdata.decode()
+			return self.readacommand( databuff, sock )
 	
 	def clientthread(self, conn ):
 		endpoint = self.cm.register_endpoint( conn )
 		
-		
-		
 		did_auth=0
-				
+		databuff = ""	
 		while True:
-			try:
-				data = conn.recv(1024)
-				if not data: 
-					break
-				sdata = str(data.decode())
-			except:
-				print("Failled to decode/recv data")
-
-			
-			print(sdata)		
+			sdata = self.readacommand( databuff, conn )
+			if sdata == None:
+				print("GOT NONE")
+				break
+			#print("IN -> " + sdata)
+			if len(sdata.replace("\n","")) == 0:
+				continue
 			#for i in range(0, len(sdata)):
 			#	print(str(i) + ":" + sdata[i])
-			
 			reply = gen_ret();
-						
 			if sdata.find("PWD") != -1 :
 				pp = sdata.split(" ")
 				if pp[1] != PWD:
 					reply=gen_ret("BAD_PWD");
 				else:
 					print("AUTHOK from client");
-					conn.sendall(gen_ret("AUTHOK").encode())
+					conn.sendall(gen_ret_str("AUTHOK").encode())
 					did_auth=1
 					#First notify the unique ID to the client
 					sid = "ID " + str(endpoint.id) + "\n"
@@ -215,8 +301,10 @@ class ListenServ():
 				return
 			else:
 				reply = endpoint.process_command( sdata )
-			print("REPLY : >" + str(reply) + "<")
-			conn.sendall((reply + "\n").encode() )
+			
+			if reply != None :
+				print(json.dumps( reply ) )
+				conn.sendall(( json.dumps(reply) + "\n").encode() )
 
 		try:
 			conn.close()
@@ -270,11 +358,33 @@ class ConnectionManager():
 
 	def get_endpoint( self, id ):
 		for i in range( 0, len( self.endpoints ) ):
-			if id == str(self.endpoints[i].id):
+			if str(id) == str(self.endpoints[i].id):
 				return self.endpoints[i]
 		return None
-	
 
+	def command_all( self, command, data ):
+		ret = []
+		for i in range( 0, len( self.endpoints ) ):
+			self.refresh_endpoint( i ) 
+			ret.append( self.endpoints[i].send_command( command, data ) )
+		return ret
+
+	def command_to( self, id, command, data ):
+		endp = self.get_endpoint( id );
+		if endp == None:
+			print("No such endpoint")
+			return None
+		else:
+			self.refresh_endpoint( id ) 
+			return endp.send_command( command, data )
+
+	def refresh_endpoint( self, id ):
+		print("Reconnecting to "+ str(id) )
+		endp = self.get_endpoint( id );
+		if endp != None :
+			self.l.reconnect( endp )
+		else:
+			print("No such endpoint " + str(id))
 
 conn = ConnectionManager()
 
@@ -297,6 +407,35 @@ class ExaShell(cmd.Cmd):
 	def do_clear(self, arg):
 		'Clear all meta-data'
 		conn.clear_endpoints();
+	def do_refresh(self, arg):
+		'Restore connection to a given Endpoint'
+		if len( arg ) != 1 :
+			print("Too many args");
+		else:
+			eid = int( arg[0] )
+			conn.refresh_endpoint( eid );
+	def do_cmd(self, arg):
+		'Restore connection to a given Endpoint'
+		if len( arg ) < 3 :
+			print("Not enough args");
+		else:
+			sarg = arg.split(" ");
+			target = sarg[0]
+			command = sarg[1]
+			data = ''.join(sarg[2:])
+
+			ret = {}
+
+			try:
+				jdata = json.loads( data )
+			except:
+				print("Could not process " + data);
+				return
+			if target == "*":
+				ret = conn.command_all( command, data )
+			else:
+				ret = conn.command_to( int(target), command, data )
+			print(json.dumps( ret ))
 	def do_exit(self, arg):
 		'Quit the ExaStamp Shell'
 		print('Exitting...')

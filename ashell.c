@@ -13,6 +13,7 @@
 #include <dlfcn.h>
 #include <unistd.h>
 #include <jansson.h>
+#include <stdint.h>
 
 #include <mpi.h>
 
@@ -57,6 +58,7 @@ char * socket_readline( int socket )
 	if( cr )
 	{
 		*cr = '\0';
+		//printf("GOT CR (%s)\n", linebuffer );
 		char * ret = strdup( linebuffer );
 		
 		char * rest = strdup( cr + 1 );
@@ -78,26 +80,34 @@ char * socket_readline( int socket )
 	}
 	else if( socket != -1 )
 	{
+		
 		int dest = strlen( linebuffer );
 
-		if((n = recv(socket, linebuffer + dest, 500 - 1, 0)) < 0)
+		if((n = recv(socket, linebuffer + dest, 1024, 0)) < 0)
 		{
+			 fprintf(stderr," ==> recv()");
 		  perror("recv()");
-		  return NULL;
+		  return 0x1;
 		}
 		
 		if( n == 0 )
 		{
-			return socket_readline( -1 );
+			fprintf(stderr," ==> ZEEERO ()");
+			perror("recv()");
+			return 0x1;
 		}
 		else
 		{
 			*(linebuffer + dest + n ) = '\0';
 		}
 
+		//printf("Getting DATA (%s)\n", linebuffer );
+
 		return socket_readline( socket );
 	}
 
+
+	//printf("RET NULL SOKC %d (%s)\n", socket, linebuffer );
 	return NULL;
 }
 
@@ -105,34 +115,27 @@ void * client_loop( void *pcm )
 {
 	struct connection_manager *cm = (struct connection_manager *)pcm;
 	
-	char *buff = malloc( BUFF_SIZE );
-	
-	if( !buff )
-	{
-		perror("malloc");
-		abort();
-	}
-	
-	buff[0] = '\0';
-	
 	while(1)
 	{
 		char * data = socket_readline( cm->outgoing_socket );
 		
 		if( data )
 		{
-			(cm->cb)( data, cm->arg );
-			free( data );
+			if( data == 0x1 )
+			{
+				break;
+			}
+			else
+			{
+				(cm->cb)( data, cm->arg );
+				free( data );
+			}
 		}
-		else
-		{
-			break;
-		}
+
 	}
 	
 	fprintf(stderr, "Client disconnected\n");
 	
-	free( buff );
 }
 
 
@@ -163,6 +166,14 @@ void * server_loop( void *pcm )
 		}
 		
 		cm->outgoing_socket = new_fd;
+		
+		fprintf(stderr, "New client from shell\n");
+		
+		char reset[400];
+		snprintf(reset, 400, "RESET %d\n", cm->id );
+		
+		/* Restore CTX */
+		send(cm->outgoing_socket, reset, strlen(reset), 0);
 		
 		pthread_create( &cm->outgoing_thread, NULL, client_loop, (void*)cm);
 	}
@@ -221,7 +232,7 @@ int connection_manager_connect( struct connection_manager *cm )
 	do
 	{
 		char pwd[100];
-		snprintf(pwd, 100, "PWD %s", cm->secret );
+		snprintf(pwd, 100, "PWD %s\n", cm->secret );
 		/* Send AUTH */
 		send(cm->outgoing_socket, pwd, strlen(pwd), 0);
 		
@@ -229,11 +240,18 @@ int connection_manager_connect( struct connection_manager *cm )
 		char * ack = socket_readline( cm->outgoing_socket );
 		printf("ACK=> %s \n", ack);
 
+		if( !ack )
+		{
+			printf("Error failled data exchange\n");
+			return 1;
+		}
+
 		if( strstr(ack, "AUTHOK") )
 		{
 			printf("OK got ACK \n");
 			got_ack =1;
 		}
+
 
 		free( ack );
 	}while(!got_ack);
@@ -241,6 +259,12 @@ int connection_manager_connect( struct connection_manager *cm )
 	/* READ ID */
 
 	char * tid = socket_readline( cm->outgoing_socket );
+
+	if( !tid )
+	{
+		printf("Error failled data exchange\n");
+		return 1;
+	}
 
 	printf("ID=>%s\n", tid );
 
@@ -257,7 +281,7 @@ int connection_manager_connect( struct connection_manager *cm )
 		char meta[500];
 		int rank;
 		MPI_Comm_rank(MPI_COMM_WORLD, &rank );
-		snprintf(meta,500,"{\"cmd\":\"meta\", \"data\" : { \"rank\" : %d, \"desc\" : \"%s\", \"host\" : \"%s\", \"port\" : %d}}", rank, "", cm->hostname, cm->listening_port);
+		snprintf(meta,500,"{\"cmd\":\"meta\", \"data\" : { \"rank\" : %d, \"desc\" : \"%s\", \"host\" : \"%s\", \"port\" : %d}}\n", rank, "", cm->hostname, cm->listening_port);
 		send(cm->outgoing_socket, meta, strlen(meta), 0);
 	}
 	else
@@ -355,6 +379,9 @@ int connection_manager_send( struct connection_manager * cm , char * data )
 	}
 	
 	send(cm->outgoing_socket, data, strlen(data), 0);
+	
+	char newline[2]= "\n";
+	send(cm->outgoing_socket, newline, strlen(newline), 0);	
 	
 	return 0;
 }
@@ -556,13 +583,149 @@ int xashell_plugins_call_release( struct xashell_plugins *pls ,  struct xashell 
 }
 
 
+struct xashell_command
+{
+	json_t * (*callback)( json_t * data );
+	char * name;
+	struct xashell_command * next;
+};
+
+
+struct xashell_command * xashell_command_new( char * name, json_t * (*callback)( json_t * data ) )
+{
+	struct xashell_command * ret = malloc( sizeof(struct xashell_command));
+	
+	if( !ret )
+	{
+		perror("malloc");
+		return NULL;
+	}
+	
+	ret->name = strdup( name );
+	ret->callback = callback;
+
+	return ret;
+}
+
+
+struct xashell_commands
+{
+	struct xashell_command * commands;
+};
+
+
+int xashell_commands_init( struct xashell_commands * cmds )
+{
+	cmds->commands = NULL;
+	return 0;
+}
+
+
+ struct xashell_command * xashell_commands_get( struct xashell_commands * cmds , char *name )
+{
+	/* Push new command front */
+	struct xashell_command *tmp = cmds->commands;
+	
+	while( tmp )
+	{
+		if( !strcmp(tmp->name, name ) )
+		{
+			return tmp;
+		}
+	
+		tmp = tmp->next;
+	}
+	
+	return NULL;
+}
+
+
+
+int xashell_commands_push( struct xashell_commands * cmds, struct xashell_command * cmd )
+{
+	/* Push new command front */
+	cmd->next = cmds->commands;
+	cmds->commands = cmd;
+	
+	return 0;
+}
+
+
 struct xashell
 {
 	struct connection_manager cm;
 	struct xashell_plugins plugins;
+	struct xashell_commands cmds;
 	char * plugin_prefix;
+	json_t * command_buffer;
 	
 };
+
+
+
+static unsigned int ref_id = 1;
+
+json_t * xashell_command_to_shell( struct xashell * shell, char * cmd , json_t * data)
+{
+	int rank;
+	MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+	uint64_t ref_id64 = ((uint64_t)rank << 32 ) | ref_id++;
+	char ref[64];
+	snprintf( ref, 64, "%llu", ref_id64 );
+	
+	json_t * jcmd = json_object();
+	json_t * jcmds = json_string(cmd);
+	json_t * jref_id = json_string(ref);
+	
+	json_object_set(jcmd, "cmd", jcmds );
+	json_object_set(jcmd, "data", data );
+	json_object_set(jcmd, "refid", jref_id );
+
+	char * command = json_dumps(jcmd, JSON_COMPACT);
+
+	json_decref(jcmds);	
+	json_decref(jcmd);
+
+	int ret = connection_manager_send( &shell->cm , command );
+	
+	free( command );
+	
+	if( ret )
+	{
+		return json_null();
+	}
+	
+	/* Wait for anwser */
+	
+	json_t * jret = NULL;
+	
+	int count = 0;
+	
+	while( (jret = json_object_get( shell->command_buffer, ref) ) == NULL )
+	{
+		count++;
+		
+		if( 1e6 < count )
+		{
+			fprintf(stderr,"Error timemout while waiting for command result\n");
+			json_t * jret = json_null();
+			break;
+		}
+		
+		usleep(1500);
+	}
+	
+	if( jret )
+	{
+		json_incref( jret );
+		json_object_del( shell->command_buffer, ref );
+	}
+	
+	
+	return jret;
+}
+
+
 
 
 void xashell_incoming_command( char * data, void *ps)
@@ -581,6 +744,10 @@ void xashell_incoming_command( char * data, void *ps)
 		fprintf(stderr, "Empty line\n");	
 		return;
 	}
+	
+		
+	printf("==>%s<===\n", data );
+	
 	
 	json_t *root;
     json_error_t error;
@@ -601,34 +768,62 @@ void xashell_incoming_command( char * data, void *ps)
 		return;
 	}
 	
-	printf("==>%s<===\n", data );
+	/* Is it an anwser ? */
 	
+	json_t * ref_id = json_object_get(root, "refid" );
+	
+	if( ref_id )
+	{
+		if(  json_is_string( ref_id ) )
+		{
+			fprintf(stderr,"Got answer for refid %s\n", json_string_value( ref_id ) );
+			json_object_set( xsh->command_buffer, json_string_value( ref_id ), root );
+			return;
+		}
+	}
+	
+	/* So it is a command ? */
+	
+	json_t * cmd = json_object_get(root, "cmd" );
+	json_t * jdata = json_object_get(root, "data" );
+	
+	if( !jdata )
+	{
+		jdata = json_null();
+	}
+	
+	if( cmd )
+	{
+		json_t * s_ref_id =  json_object_get(root, "s_refid" );
+		
+		json_t * cmdret = appshell_cmd( xsh, json_string_value(cmd) , jdata );
+		
+		if( !json_is_object(cmdret ) )
+		{
+			fprintf(stderr, "Command %s : Return value must be an object\n",json_string_value(cmd));
+			abort();
+		}
+		
+		/* Reply with the shell refID */
+		if( s_ref_id )
+		{
+			json_object_set_new( cmdret, "s_refid", s_ref_id );
+		}
+		
+		char * txt_command = json_dumps(cmdret, JSON_COMPACT);
+		json_decref( cmdret );
+		
+		int ret = connection_manager_send( &xsh->cm , txt_command );
+	
+		free( txt_command );
+	}
+
 	json_decref(root);
 	
 	return;
 }
 
 
-
-int xashell_command_to_shell( struct xashell * shell, char * cmd , json_t * data)
-{
-	json_t * jcmd = json_object();
-	json_t * jcmds = json_string(cmd);
-	
-	json_object_set(jcmd, "command", jcmds );
-	json_object_set(jcmd, "data", data );
-
-	char * command = json_dumps(jcmd, JSON_COMPACT);
-
-	json_decref(jcmds);	
-	json_decref(jcmd);
-
-	int ret = connection_manager_send( &shell->cm , command );
-	
-	free( command );
-	
-	return ret;
-}
 
 int xashell_echo( struct xashell * shell, char * data)
 {
@@ -637,12 +832,13 @@ int xashell_echo( struct xashell * shell, char * data)
 	
 	json_object_set(jdata, "s", s );
 	
-	int ret = xashell_command_to_shell( shell, "echo" , jdata);
+	json_t * ret = xashell_command_to_shell( shell, "echo" , jdata);
 	
 	json_decref(s);
 	json_decref(jdata);
+	json_decref(ret);
 	
-	return ret;
+	return 0;
 }
 
 
@@ -670,8 +866,15 @@ struct xashell * xashell_new( char * host, int port, char * secret, char * plugi
 		return NULL;		
 	}
 	
+	/* Start command buffer */
+	ret->command_buffer = json_object();
+	
 	/* Now Initialize plugins */
 	xashell_plugins_call_init( &ret->plugins ,  ret );
+	
+	/* Init Command list */
+	xashell_commands_init( &ret->cmds );
+	
 	
 	return ret;
 }
@@ -756,19 +959,40 @@ int ashell_release(ashell_t shell)
 
 int ashell_echo(ashell_t shell, char * data )
 {
-	
-	
+	struct xashell * s = (struct xashell *)shell;
+	return xashell_echo( s, data);
 }
 
-char * appshell_cmd( ashell_t shell, char * cmd, char * data )
+json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data )
 {
+	struct xashell * s = (struct xashell *)shell;
+
+	struct xashell_command * pcmd = xashell_commands_get( &s->cmds , cmd );
+	json_t * ret = NULL;
 	
-	
+	if( pcmd && pcmd->callback )
+	{
+		ret = pcmd->callback( data );
+	}
+	else
+	{
+		ret = json_object();
+		json_object_set_new( ret, "err", json_string("No such command"));
+		json_object_set_new( ret, "data", json_object());
+	}
+
+	return ret;
 }
 
-int ashell_register_command( ashell_t shell, char * cmd, char * (*callback)( char * data ) )
+int ashell_register_command( ashell_t shell, char * cmd, json_t * (*callback)( json_t * data ) )
 {
+	struct xashell * s = (struct xashell *)shell;
 	
+	struct xashell_command * ncmd = xashell_command_new( cmd, callback );
 	
+	if( ! ncmd )
+		return 1;
+	
+	return xashell_commands_push( &s->cmds, ncmd );
 }
 

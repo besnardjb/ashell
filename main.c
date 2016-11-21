@@ -13,7 +13,7 @@ int main( int argc, char ** argv )
 	
 	printf("SH %p\n", s );
 	
-	sleep(50);
+	sleep(500);
 	
 	ashell_release( s );
 	

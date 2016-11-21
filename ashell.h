@@ -1,6 +1,7 @@
 #ifndef ASHELL_H
 #define ASHELL_H
 
+#include <jansson.h>
 
 typedef void* ashell_t; 
 
@@ -12,9 +13,9 @@ int ashell_release(ashell_t shell);
 
 int ashell_echo(ashell_t shell, char * data );
 
-char * appshell_cmd( ashell_t shell, char * cmd, char * data );
+json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data );
 
-int ashell_register_command( ashell_t shell, char * cmd, char * (*callback)( char * data ) );
+int ashell_register_command( ashell_t shell, char * cmd, json_t * (*callback)( json_t * data ) );
 
 
 
