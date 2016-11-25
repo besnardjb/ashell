@@ -149,7 +149,7 @@ class Endpoint():
 		return ret
 			
 	def process_command( self, command ):
-		print("(i) " + command )
+		#print("(i) " + command )
 		global command_buffer
 		
 		ret = {}
@@ -195,7 +195,7 @@ class ListenServ():
 		self.cm = cm;
 		self.s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 		self.sockets = []
-M@ÿ@		try:
+		try:
 			self.s.bind((HOST, PORT))
 		except socket.error as msg:
 			print("Bind failed. Error Code : " + str(msg[0]) + " Message " + msg[1])

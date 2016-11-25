@@ -3,11 +3,14 @@ CFLAGS=-O3 -g
 LDFLAGS=-ljansson
 
 
-all: app plugin/plugin_echo.so
+all: app plugin/plugin_mem.so plugin/plugin_echo.so
 
 
 app : main.c libashell.so
 	$(CC) $(CFLAGS) ./main.c -L. -lashell -Wl,-rpath=$(PWD) -o $@
+
+plugin/plugin_mem.so : libashell.so
+	$(CC) $(CFLAGS) -fpic -shared ./plugin/plugin_mem.c -I$(PWD) -L$(PWD) -Wl,-rpath=$(PWD)  -o $@
 
 plugin/plugin_echo.so : libashell.so
 	$(CC) $(CFLAGS) -fpic -shared ./plugin/plugin_echo.c -I$(PWD) -L$(PWD) -Wl,-rpath=$(PWD)  -o $@

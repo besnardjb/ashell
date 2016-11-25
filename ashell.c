@@ -621,13 +621,14 @@ int xashell_commands_init( struct xashell_commands * cmds )
 }
 
 
- struct xashell_command * xashell_commands_get( struct xashell_commands * cmds , char *name )
+ struct xashell_command * xashell_commands_get( struct xashell_commands * cmds , const char *name )
 {
 	/* Push new command front */
 	struct xashell_command *tmp = cmds->commands;
 	
 	while( tmp )
 	{
+		printf("%s -- %s ?", tmp->name, name );
 		if( !strcmp(tmp->name, name ) )
 		{
 			return tmp;
@@ -818,7 +819,6 @@ void xashell_incoming_command( char * data, void *ps)
 		free( txt_command );
 	}
 
-	json_decref(root);
 	
 	return;
 }
@@ -869,12 +869,12 @@ struct xashell * xashell_new( char * host, int port, char * secret, char * plugi
 	/* Start command buffer */
 	ret->command_buffer = json_object();
 	
-	/* Now Initialize plugins */
-	xashell_plugins_call_init( &ret->plugins ,  ret );
-	
 	/* Init Command list */
 	xashell_commands_init( &ret->cmds );
-	
+
+	/* Now Initialize plugins */
+	xashell_plugins_call_init( &ret->plugins ,  ret );
+
 	
 	return ret;
 }
@@ -968,7 +968,9 @@ json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data )
 	struct xashell * s = (struct xashell *)shell;
 
 	struct xashell_command * pcmd = xashell_commands_get( &s->cmds , cmd );
+	
 	json_t * ret = NULL;
+
 	
 	if( pcmd && pcmd->callback )
 	{
