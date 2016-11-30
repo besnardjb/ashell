@@ -93,6 +93,11 @@ int ashell_register_command( ashell_t shell,
 							 char * cmd, 
 							 char * (*callback)( json_t * data, json_t * ret  ) );
 
-
+/** A print function only enabled when ashell is in Verbose mode
+ * @note Use the env var ASHELL_VERBOSE to make aShell verbose
+ * @arg fmt Format (like printf)
+ * @arg ... Optionnal data (like printf)
+ */
+void ashell_debug(const char *fmt, ...);
 
 #endif /* ASHELL_H */

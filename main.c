@@ -32,8 +32,6 @@ int main( int argc, char ** argv )
 	
 	ashell_t s = ashell_init_from_env(NULL);
 	
-	printf("SH %p\n", s );
-	
 	sleep(500);
 	
 	ashell_release( s );

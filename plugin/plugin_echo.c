@@ -26,18 +26,11 @@
 
 int ashell_plugin_init(ashell_t shell , void** my_cxt )
 {
-		fprintf(stderr, "Loading plugin ECHO\n");
-		
+		ashell_debug("Loading plugin ECHO\n");
 		ashell_echo( shell, "Hello from echo plugin" );
-		//ashell_echo( shell, "Hello from echo plugin" );
-		//ashell_echo( shell, "Hello from echo plugin" );
-		//ashell_echo( shell, "Hello from echo plugin" );
-		//ashell_echo( shell, "Hello from echo plugin" );
-		//ashell_echo( shell, "Hello from echo plugin" );
-		
 }
 
 int ashell_plugin_release(ashell_t shell , void** my_cxt )
 {
-		fprintf(stderr, "Releasing plugin ECHO\n");
+		ashell_debug("Releasing plugin ECHO\n");
 }

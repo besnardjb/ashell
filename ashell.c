@@ -34,12 +34,38 @@
 #include <unistd.h>
 #include <jansson.h>
 #include <stdint.h>
-
+#include <stdarg.h>
 #include <mpi.h>
 
 #include "ashell.h"
 
 
+static int ashell_is_verbose = -1;
+
+void ashell_debug(const char *fmt, ...)
+{
+	if( ashell_is_verbose == -1 )
+	{
+		char * envv = getenv("ASHELL_VERBOSE");
+
+		if( envv )
+		{
+			ashell_is_verbose = 1;
+		}
+		else
+		{
+			ashell_is_verbose = 0;
+		}
+	}
+
+	if( !ashell_is_verbose )
+		return;
+
+    va_list args;
+    va_start(args, fmt);
+    vprintf(fmt, args);
+    va_end(args);
+}	
 
 struct connection_manager
 {
@@ -105,14 +131,12 @@ char * socket_readline( int socket )
 
 		if((n = recv(socket, linebuffer + dest, 1024, 0)) < 0)
 		{
-			 fprintf(stderr," ==> recv()");
 		  perror("recv()");
 		  return (void*)0x1;
 		}
 		
 		if( n == 0 )
 		{
-			fprintf(stderr," ==> ZEEERO ()");
 			perror("recv()");
 			return (void *)0x1;
 		}
@@ -258,7 +282,6 @@ int connection_manager_connect( struct connection_manager *cm )
 		
 		/* GET ACK */
 		char * ack = socket_readline( cm->outgoing_socket );
-		printf("ACK=> %s \n", ack);
 
 		if( !ack )
 		{
@@ -268,7 +291,6 @@ int connection_manager_connect( struct connection_manager *cm )
 
 		if( strstr(ack, "AUTHOK") )
 		{
-			printf("OK got ACK \n");
 			got_ack =1;
 		}
 
@@ -286,13 +308,11 @@ int connection_manager_connect( struct connection_manager *cm )
 		return 1;
 	}
 
-	printf("ID=>%s\n", tid );
 
 	int id = atoi( tid + 3 );
 	
 	free( tid );
 	
-	printf("Endpoint id %d\n", id );
 	
 	if( cm->id == -1 )
 	{
@@ -495,8 +515,6 @@ struct xashell_plugin * xashell_plugin_new( char * path )
 	
 	void * handle = dlopen( path, RTLD_LAZY );
 	
-	fprintf(stderr, "===> %p\n", handle );
-	
 	if( handle == NULL )
 	{
 			free( ret->path );
@@ -553,8 +571,6 @@ int xashell_plugins_init( struct xashell_plugins *pls , char * prefix )
 			continue;
 		}
 	
-		printf("File %s\n", dir->d_name );
-		
 		char path[500];
 		snprintf(path, 500, "%s/%s", prefix, dir->d_name );
 		struct xashell_plugin * new_p = xashell_plugin_new( path );
@@ -566,8 +582,8 @@ int xashell_plugins_init( struct xashell_plugins *pls , char * prefix )
 			pls->plugin_count++;
 		}
 	}
-	
-	printf("Sucessfully loaded %d aShell plugins\n", pls->plugin_count);
+
+	ashell_debug( "aShell : Successfully loaded %d aShell plugins\n", pls->plugin_count);
 	
 	closedir( d );
 	
@@ -648,7 +664,6 @@ int xashell_commands_init( struct xashell_commands * cmds )
 	
 	while( tmp )
 	{
-		printf("%s -- %s ?", tmp->name, name );
 		if( !strcmp(tmp->name, name ) )
 		{
 			return tmp;
@@ -762,13 +777,10 @@ void xashell_incoming_command( char * data, void *ps)
 	
 	if( strlen( data ) == 0 )
 	{
-		fprintf(stderr, "Empty line\n");	
 		return;
 	}
 	
 		
-	printf("==>%s<===\n", data );
-	
 	
 	json_t *root;
     json_error_t error;
@@ -797,7 +809,6 @@ void xashell_incoming_command( char * data, void *ps)
 	{
 		if(  json_is_string( ref_id ) )
 		{
-			fprintf(stderr,"Got answer for refid %s\n", json_string_value( ref_id ) );
 			json_object_set( xsh->command_buffer, json_string_value( ref_id ), root );
 			return;
 		}
@@ -930,7 +941,7 @@ ashell_t ashell_init_from_env(char *plugin_prefix)
 	
 	char * secret = strdup( pp + 1 );
 	
-	printf("Connecting to %s:%s (SECRET %s)\n", host, port, secret );
+	ashell_debug("aShell : Connecting to %s:%s (SECRET %s)\n", host, port, secret );
 
 	ashell_t ret = ashell_init(host, atoi(port), secret, plugin_prefix);
 	

@@ -128,7 +128,7 @@ class Endpoint():
 			print("Error No connected socket")
 			return
 		cret = json.dumps( jscmd ) + "\n"
-		print("Sending" +  cret )
+		#print("Sending" +  cret )
 		s.sendall( cret.encode() )
 		ret = None
 		counter=0
@@ -142,7 +142,7 @@ class Endpoint():
 					print("(E) Timeout getting command return");
 					break
 			else:
-				print("(i) Command OK");
+				#print("(i) Command OK");
 				del command_buffer[ str(jscmd["s_refid"]) ]
 				break
 		return ret
@@ -194,9 +194,9 @@ class Endpoint():
 			return None;
 		
 		if data != None:
-			print("====")
-			print(data)
-			print("====")
+			#print("====")
+			#print(data)
+			#print("====")
 			
 			if cmd == "echo":
 				print(data["s"] + "\n")
@@ -271,7 +271,7 @@ class ListenServ():
 		while True:
 			sdata = self.readacommand( databuff, conn )
 			if sdata == None:
-				print("GOT NONE")
+				print("Client Disconnected")
 				break
 			#print("IN -> " + sdata)
 			if len(sdata.replace("\n","")) == 0:
@@ -284,7 +284,6 @@ class ListenServ():
 				if pp[1] != PWD:
 					reply=gen_ret("BAD_PWD");
 				else:
-					print("AUTHOK from client");
 					conn.sendall(gen_ret_str("AUTHOK").encode())
 					did_auth=1
 					#First notify the unique ID to the client
@@ -323,7 +322,7 @@ class ListenServ():
 				reply = endpoint.process_command( sdata )
 			
 			if reply != None :
-				print(json.dumps( reply ) )
+				#print(json.dumps( reply ) )
 				conn.sendall(( json.dumps(reply) + "\n").encode() )
 
 		try:
@@ -340,7 +339,7 @@ class ListenServ():
 			except:
 				print("Listening server closed")
 				return;
-			print("Connected with " + addr[0] + ":" + str(addr[1]))
+			#print("Connected with " + addr[0] + ":" + str(addr[1]))
 			self.sockets.append( conn );
 			threading.Thread(target=self.clientthread, args=[conn]).start()
 		s.close()
@@ -392,19 +391,19 @@ class ConnectionManager():
 	def command_to( self, id, command, data ):
 		endp = self.get_endpoint( id );
 		if endp == None:
-			print("No such endpoint")
+			#print("No such endpoint")
 			return None
 		else:
 			self.refresh_endpoint( id ) 
 			return endp.send_command( command, data )
 
 	def refresh_endpoint( self, id ):
-		print("Reconnecting to "+ str(id) )
+		#print("Reconnecting to "+ str(id) )
 		endp = self.get_endpoint( id );
 		if endp != None :
 			self.l.reconnect( endp )
-		else:
-			print("No such endpoint " + str(id))
+		#else:
+			#print("No such endpoint " + str(id))
 
 conn = ConnectionManager()
 
