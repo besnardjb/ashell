@@ -1,6 +1,6 @@
 CC=mpicc
-CFLAGS=-O3 -g
-LDFLAGS=-ljansson
+CFLAGS=-O3 -g -I. -I$(PWD)/bdeps/include/
+LDFLAGS=-ljansson -Wl,-rpath=$(PWD) -Wl,-rpath=$(PWD)/bdeps/lib/
 
 
 all: app plugin/plugin_mem.so plugin/plugin_echo.so
@@ -15,8 +15,12 @@ plugin/plugin_mem.so : libashell.so
 plugin/plugin_echo.so : libashell.so
 	$(CC) $(CFLAGS) -fpic -shared ./plugin/plugin_echo.c -I$(PWD) -L$(PWD) -Wl,-rpath=$(PWD)  -o $@
 
-libashell.so : ashell.c
+libashell.so : ashell.c ./bdeps/lib/libjansson.so
 	$(CC) $(CFLAGS) -fpic -shared $^ -o $@ $(LDFLAGS)
-	
+
+bdeps/lib/libjansson.so :
+	./deps/build_deps.sh
+
+
 clean:
-	rm -f *.o ./a.out ./app libashell.so ./plugin/*.so
+	rm -fr *.o ./a.out ./app libashell.so ./plugin/*.so ./bdeps/
