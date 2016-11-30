@@ -90,3 +90,14 @@ int ashell_plugin_release(ashell_t shell , void** my_cxt )
 {
 	ashell_debug("Releasing plugin MEMORY\n");
 }
+
+
+char * ashell_plugin_name( ashell_plugin_t plugin )
+{
+	return "Memory Plugin";
+}
+
+int ashell_plugin_data( ashell_t shell, ashell_plugin_t plugin, char * desc, void * data )
+{
+	return 0;
+}

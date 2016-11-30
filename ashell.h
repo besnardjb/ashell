@@ -32,6 +32,11 @@ typedef void* ashell_t;
  */
 #define ASHELL_ERROR (NULL)
 
+/** This defines an aShell Plugin
+ */
+typedef void * ashell_plugin_t;
+
+
 /** This is the common way of initializing a shell
  * 
  * @warning This command depends on the following env variabes
@@ -82,6 +87,19 @@ int ashell_echo(ashell_t shell, char * data );
  * @return A JSON describing command return and possible errors
  */
 json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data );
+
+
+/** This command is used to send data to a plugin of the local aShell instance
+ * 
+ * @arg shell aShell instance to target
+ * @arg plugin Name of the plugin to target
+ * @arg desc Description of the data
+ * @arg data An opaque pointer with data
+ * @return A JSON describing command return and possible errors
+ */
+int ashell_data( ashell_t shell, char * plugin, char * desc, void * data );
+
+
 
 /** This command is used by plugins to register new commands
  * @arg shell aShell instance to register in

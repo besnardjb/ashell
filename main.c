@@ -31,8 +31,12 @@ int main( int argc, char ** argv )
 	MPI_Init(&argc, &argv );
 	
 	ashell_t s = ashell_init_from_env(NULL);
-	
-	sleep(500);
+
+	int i;
+
+	for (i = 0; i < 90; ++i) {
+		ashell_data( s, "ECHO", "TEST", (void *)0x1 );
+	}
 	
 	ashell_release( s );
 	

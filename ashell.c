@@ -493,11 +493,13 @@ int connection_manager_release( struct connection_manager * cm )
 
 struct xashell_plugin
 {
+	char * name;
 	char * path;
 	void * storage;
-	int (*plugin_init)( ashell_t shell , void ** storage );
-	int (*plugin_release)( ashell_t shell , void ** storage );
-	
+	int (*plugin_init)( ashell_t shell , ashell_plugin_t plugin );
+	char * (*plugin_name)( ashell_plugin_t plugin );
+	int (*plugin_release)( ashell_t shell , ashell_plugin_t plugin );
+	int (*plugin_data)( ashell_t shell, ashell_plugin_t plugin, char * desc, void * data );
 	struct xashell_plugin * next;
 };
 
@@ -522,10 +524,15 @@ struct xashell_plugin * xashell_plugin_new( char * path )
 			return NULL;
 	}
 	
-	ret->plugin_init = (int (*)(ashell_t,void**))dlsym( handle, "ashell_plugin_init");
-	ret->plugin_release = (int (*)(ashell_t,void**))dlsym( handle, "ashell_plugin_release");
+	ret->plugin_init = (int (*)(ashell_t,ashell_plugin_t))dlsym( handle, "ashell_plugin_init");
+	ret->plugin_release = (int (*)(ashell_t,ashell_plugin_t))dlsym( handle, "ashell_plugin_release");
+	ret->plugin_name = (char * (*)(ashell_plugin_t))dlsym( handle, "ashell_plugin_name");
+	ret->plugin_data = (int (*)(ashell_t,ashell_plugin_t,char *, void *))dlsym( handle, "ashell_plugin_data");
 	
-	if(!ret->plugin_init || !ret->plugin_release )
+	if(!ret->plugin_init 
+	|| !ret->plugin_release
+	|| !ret->plugin_name 
+	|| !ret->plugin_data )
 	{
 		fprintf(stderr, "Could not find all required symbols in target plugin\n"
 						"Plugin : %s", path);
@@ -533,6 +540,8 @@ struct xashell_plugin * xashell_plugin_new( char * path )
 		free(ret);
 		return NULL;
 	}
+
+	ret->name = ret->plugin_name((ashell_plugin_t)ret);
 
 	return ret;
 }
@@ -617,6 +626,21 @@ int xashell_plugins_call_release( struct xashell_plugins *pls ,  struct xashell 
 	
 	return 0;
 }
+
+struct xashell_plugin * xashell_plugins_get_by_name( struct xashell_plugins *pls , char *name )
+{
+	struct xashell_plugin * tmp = pls->plugins;
+	
+	while(tmp)
+	{
+		if( !strcmp(name, tmp->name))
+			return tmp;
+		tmp = tmp->next;
+	}
+	
+	return NULL;
+}
+
 
 
 struct xashell_command
@@ -1018,6 +1042,22 @@ json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data )
 	json_object_set_new( ret, "data", ret_data );
 
 	return ret;
+}
+
+int ashell_data( ashell_t shell, char * plugin, char * desc, void * data )
+{
+	struct xashell * s = (struct xashell *)shell;
+
+	struct xashell_plugin *pl = xashell_plugins_get_by_name( &s->plugins , plugin );
+
+	if( !pl )
+	{
+		return 1;
+	}
+
+	(pl->plugin_data)( shell, (ashell_plugin_t)pl, desc, data );
+
+	return 0;
 }
 
 int ashell_register_command( ashell_t shell, char * cmd, char * (*callback)( json_t * data, json_t * ret ) )

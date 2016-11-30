@@ -34,3 +34,14 @@ int ashell_plugin_release(ashell_t shell , void** my_cxt )
 {
 		ashell_debug("Releasing plugin ECHO\n");
 }
+
+char * ashell_plugin_name( ashell_plugin_t plugin )
+{
+	return "ECHO";
+}
+
+int ashell_plugin_data( ashell_t shell, ashell_plugin_t plugin, char * desc, void * data )
+{
+	printf("HERE we have desc %s data %p\n", desc, data );
+	return 0;
+}
