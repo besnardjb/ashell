@@ -1,6 +1,6 @@
 CC=mpicc
 CFLAGS=-O3 -g -I. -I$(PWD)/bdeps/include/
-LDFLAGS=-ljansson -Wl,-rpath=$(PWD) -Wl,-rpath=$(PWD)/bdeps/lib/
+LDFLAGS=-ljansson -Wl,-rpath=$(PWD) -Wl,-rpath=$(PWD)/bdeps/lib/ -L$(PWD)/bdeps/lib/
 
 
 all: app plugin/plugin_mem.so plugin/plugin_echo.so

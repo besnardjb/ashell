@@ -21,6 +21,11 @@
 #ifndef ASHELL_H
 #define ASHELL_H
 
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 #include <jansson.h>
 
 /** This is the defininition of the opaque ashell object
@@ -117,5 +122,9 @@ int ashell_register_command( ashell_t shell,
  * @arg ... Optionnal data (like printf)
  */
 void ashell_debug(const char *fmt, ...);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif /* ASHELL_H */
