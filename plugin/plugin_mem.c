@@ -7,16 +7,15 @@
 int sysinfo(struct sysinfo *info);
 
 
-json_t * read_sysinfo( json_t * data )
+char * read_sysinfo( json_t * data, json_t * ret )
 {
-	json_t * ret = json_object();
 	
 	struct sysinfo info;
 	
 	if( sysinfo(&info) < 0 )
 	{
 		perror("sysinfo");
-		return ret;
+		return "ERROR : Could not read sysinfo";
 	}
 
 	json_t * uptime = json_integer(info.uptime);
@@ -43,25 +42,20 @@ json_t * read_sysinfo( json_t * data )
 	json_t * memunit = json_integer(info.mem_unit);
 
 
-	json_t * rdata = json_object();
+	json_object_set_new( ret , "uptime", uptime );
+	json_object_set_new( ret , "load", load );
+	json_object_set_new( ret , "totalram", totalram );
+	json_object_set_new( ret , "freeram", freeram );
+	json_object_set_new( ret , "sharedram", sharedram );
+	json_object_set_new( ret , "bufferram", bufferram );
+	json_object_set_new( ret , "totalswap", totalswap );
+	json_object_set_new( ret , "freeswap", freeswap );
+	json_object_set_new( ret , "procs", procs );
+	json_object_set_new( ret , "totalhigh", totalhigh );
+	json_object_set_new( ret , "freehigh", freehigh );
+	json_object_set_new( ret , "memunit", memunit );
 
-	json_object_set_new( rdata , "uptime", uptime );
-	json_object_set_new( rdata , "load", load );
-	json_object_set_new( rdata , "totalram", totalram );
-	json_object_set_new( rdata , "freeram", freeram );
-	json_object_set_new( rdata , "sharedram", sharedram );
-	json_object_set_new( rdata , "bufferram", bufferram );
-	json_object_set_new( rdata , "totalswap", totalswap );
-	json_object_set_new( rdata , "freeswap", freeswap );
-	json_object_set_new( rdata , "procs", procs );
-	json_object_set_new( rdata , "totalhigh", totalhigh );
-	json_object_set_new( rdata , "freehigh", freehigh );
-	json_object_set_new( rdata , "memunit", memunit );
-
-	json_object_set_new( ret, "data", rdata );
-	json_object_set_new( ret, "ret", json_string("OK") );
-
-	return ret;
+	return "OK";
 }
 
 int ashell_plugin_init(ashell_t shell , void** my_cxt )

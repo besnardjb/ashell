@@ -87,14 +87,14 @@ char * socket_readline( int socket )
 		{
 			 fprintf(stderr," ==> recv()");
 		  perror("recv()");
-		  return 0x1;
+		  return (void*)0x1;
 		}
 		
 		if( n == 0 )
 		{
 			fprintf(stderr," ==> ZEEERO ()");
 			perror("recv()");
-			return 0x1;
+			return (void *)0x1;
 		}
 		else
 		{
@@ -121,7 +121,7 @@ void * client_loop( void *pcm )
 		
 		if( data )
 		{
-			if( data == 0x1 )
+			if( data == (void *)0x1 )
 			{
 				break;
 			}
@@ -585,13 +585,13 @@ int xashell_plugins_call_release( struct xashell_plugins *pls ,  struct xashell 
 
 struct xashell_command
 {
-	json_t * (*callback)( json_t * data );
+	char * (*callback)( json_t * data, json_t * ret );
 	char * name;
 	struct xashell_command * next;
 };
 
 
-struct xashell_command * xashell_command_new( char * name, json_t * (*callback)( json_t * data ) )
+struct xashell_command * xashell_command_new( char * name, char * (*callback)( json_t * data, json_t * ret ) )
 {
 	struct xashell_command * ret = malloc( sizeof(struct xashell_command));
 	
@@ -672,7 +672,7 @@ json_t * xashell_command_to_shell( struct xashell * shell, char * cmd , json_t *
 	MPI_Comm_rank( MPI_COMM_WORLD, &rank );
 	uint64_t ref_id64 = ((uint64_t)rank << 32 ) | ref_id++;
 	char ref[64];
-	snprintf( ref, 64, "%llu", ref_id64 );
+	snprintf( ref, 64, "%llu", (long long unsigned int)ref_id64 );
 	
 	json_t * jcmd = json_object();
 	json_t * jcmds = json_string(cmd);
@@ -968,25 +968,28 @@ json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data )
 	struct xashell * s = (struct xashell *)shell;
 
 	struct xashell_command * pcmd = xashell_commands_get( &s->cmds , cmd );
-	
-	json_t * ret = NULL;
 
-	
+	char * ret_string = "NO RET";
+	json_t * ret = json_object();
+	json_t * ret_data = json_object();
+
+
 	if( pcmd && pcmd->callback )
 	{
-		ret = pcmd->callback( data );
+		 ret_string = pcmd->callback( data, ret_data );
 	}
 	else
 	{
-		ret = json_object();
-		json_object_set_new( ret, "err", json_string("No such command"));
-		json_object_set_new( ret, "data", json_object());
+		ret_string = "No such command";
 	}
+
+	json_object_set_new( ret, "ret", json_string( ret_string ) );
+	json_object_set_new( ret, "data", ret_data );
 
 	return ret;
 }
 
-int ashell_register_command( ashell_t shell, char * cmd, json_t * (*callback)( json_t * data ) )
+int ashell_register_command( ashell_t shell, char * cmd, char * (*callback)( json_t * data, json_t * ret ) )
 {
 	struct xashell * s = (struct xashell *)shell;
 	

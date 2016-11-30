@@ -15,7 +15,7 @@ int ashell_echo(ashell_t shell, char * data );
 
 json_t * appshell_cmd( ashell_t shell, const char * cmd, json_t * data );
 
-int ashell_register_command( ashell_t shell, char * cmd, json_t * (*callback)( json_t * data ) );
+int ashell_register_command( ashell_t shell, char * cmd, char * (*callback)( json_t * data, json_t * ret  ) );
 
 
 
