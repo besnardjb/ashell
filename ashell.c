@@ -998,6 +998,11 @@ ashell_t ashell_init(char *host, int port, char * secret, char *plugin_prefix)
 int ashell_release(ashell_t shell)
 {
 	struct xashell * s = (struct xashell *)shell;
+
+	if( !s )
+	{
+		return 1;
+	}
 	
 	if( connection_manager_release( &s->cm ) )
 	{
