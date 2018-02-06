@@ -36,9 +36,10 @@ int main( int argc, char ** argv )
 
 	for (i = 0; i < 90; ++i) {
 		ashell_data( s, "ECHO", "TEST", (void *)0x1 );
-	}
+                //sleep(1);
+        }
 
-	sleep(500);
+        sleep(30);
 
 	ashell_release( s );
 	

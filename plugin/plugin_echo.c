@@ -24,10 +24,36 @@
 #include "ashell.h"
 
 
+
+char * do_echo( json_t * data, json_t * ret )
+{
+       
+    fprintf(stderr, "%s\n", json_dumps( data, 0) );
+
+        json_t * edata = json_object_get( data, "txt");
+
+        if( edata )
+        {
+                fprintf(stderr, "%s", json_string_value( edata ) ); 
+        }
+        else
+        {
+                fprintf(stderr, "Error no payload given to echo" ); 
+        }
+
+
+	return "OK";
+}
+
+
+
+
 int ashell_plugin_init(ashell_t shell , void** my_cxt )
 {
 		ashell_debug("Loading plugin ECHO\n");
 		ashell_echo( shell, "Hello from echo plugin" );
+
+	        ashell_register_command( shell, "echo", do_echo);
 }
 
 int ashell_plugin_release(ashell_t shell , void** my_cxt )
